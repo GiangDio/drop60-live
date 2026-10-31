@@ -10,6 +10,18 @@ export interface StageState {
   dropCount: number;
   isTransitioning: boolean;
   transitionStatus: "none" | "dropped" | "top_tier";
+  isBotsEnabled?: boolean;
+}
+
+export interface VipAudioHighlightEvent {
+  id: string;
+  username: string;
+  message: string;
+  actionType: "keep" | "drop";
+  timeDeltaMs: number;
+  remainingMs: number;
+  elapsedMs: number;
+  createdAt: string;
 }
 
 class StageEngine {
@@ -22,6 +34,7 @@ class StageEngine {
     dropCount: 0,
     isTransitioning: false,
     transitionStatus: "none",
+    isBotsEnabled: false,
   };
 
   private timer: NodeJS.Timeout | null = null;
@@ -30,13 +43,39 @@ class StageEngine {
   private readonly INITIAL_MS = 60000; // 60 seconds initial
   private readonly STEP_MS = 200; // 0.2s for KEEP/DROP
 
+  // Bot Simulation State
+  private botsEnabled: boolean = false;
+  private botActionTimer: NodeJS.Timeout | null = null;
+  private botChatTimer: NodeJS.Timeout | null = null;
+  private readonly BOT_NAMES = [
+    "CyberGamer99",
+    "StreamSniper_VN",
+    "NeonRunner_X",
+    "DropMaster2026",
+    "VocaloidFan",
+  ];
+  private readonly BOT_COMMENTS = [
+    "Bài này cuốn thực sự, KEEP mạnh tay nào anh em! 🔥",
+    "Cứu bài này đi, đang hay mà!",
+    "Chán quá, DROP lẹ đi chuyển bài mới 💀",
+    "Beat drop nghe phê đấy!",
+    "Giữ bài này đến hết giờ nhé!",
+    "180s Top Tier thẳng tiến nào!",
+    "Ai vừa dìm bài thế?? Đang hay!",
+    "Nhạc này mà cũng có người nghe à :)) DROP!",
+    "Đỉnh của chóp!! ❤️",
+    "Cộng giờ cứu bài đê!",
+  ];
+
   public getOnlineUsers(): number {
-    return this.io?.engine.clientsCount || 0;
+    const realUsers = this.io?.engine.clientsCount || 0;
+    return this.botsEnabled ? realUsers + this.BOT_NAMES.length : realUsers;
   }
 
   public getState() {
     return {
       ...this.state,
+      isBotsEnabled: this.botsEnabled,
       onlineUsers: this.getOnlineUsers(),
     };
   }
@@ -134,6 +173,52 @@ class StageEngine {
     });
   }
 
+  // Feature: Audio Highlight 5k with +10s (Keep) or -10s (Drop)
+  public handleAudioHighlight(username: string, rawMessage: string, actionType: "keep" | "drop" = "keep") {
+    if (this.state.isTransitioning || !this.state.currentPost) return;
+
+    const message = rawMessage?.trim();
+    if (!message || message.length > 100) return;
+
+    const TIME_DELTA_MS = 10000; // 10 seconds
+
+    if (actionType === "keep") {
+      this.state.keepCount++;
+      const maxAllowedRemaining = this.MAX_LIFETIME_MS - this.state.elapsedMs;
+      this.state.remainingMs = Math.min(
+        this.state.remainingMs + TIME_DELTA_MS,
+        maxAllowedRemaining
+      );
+    } else {
+      this.state.dropCount++;
+      this.state.remainingMs = Math.max(0, this.state.remainingMs - TIME_DELTA_MS);
+    }
+
+    const highlightEvent: VipAudioHighlightEvent = {
+      id: "hl_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+      username,
+      message,
+      actionType,
+      timeDeltaMs: TIME_DELTA_MS,
+      remainingMs: this.state.remainingMs,
+      elapsedMs: this.state.elapsedMs,
+      createdAt: new Date().toISOString(),
+    };
+
+    console.log(`[StageEngine] VIP AUDIO HIGHLIGHT from @${username} (${actionType.toUpperCase()} 10s): "${message}"`);
+
+    // 1. Broadcast VIP Audio Highlight event to all clients
+    this.io?.emit("AUDIO_HIGHLIGHT", highlightEvent);
+
+    // 2. Also stream as Danmaku message
+    this.handleSendHighlightChat(username, `${actionType === "keep" ? "🟢 [+10s Cứu]" : "🔴 [-10s Dìm]"} ${message}`);
+
+    // 3. Immediately end stage if time ran out
+    if (this.state.remainingMs <= 0) {
+      this.handleStageEnd("dropped");
+    }
+  }
+
   public handleSendChat(username: string, rawMessage: string) {
     const message = rawMessage?.trim();
     if (!message || message.length > 150) return;
@@ -162,6 +247,99 @@ class StageEngine {
     };
 
     this.io?.emit("NEW_DANMAKU", danmaku);
+  }
+
+  // Feature: Bot Simulation (Admin Local Test)
+  public toggleBots(enabled?: boolean): boolean {
+    if (enabled !== undefined) {
+      this.botsEnabled = enabled;
+    } else {
+      this.botsEnabled = !this.botsEnabled;
+    }
+
+    this.state.isBotsEnabled = this.botsEnabled;
+
+    if (this.botsEnabled) {
+      this.startBotSimulation();
+    } else {
+      this.stopBotSimulation();
+    }
+
+    // Broadcast status to all clients
+    this.io?.emit("BOTS_STATUS", {
+      enabled: this.botsEnabled,
+      botCount: this.BOT_NAMES.length,
+      onlineUsers: this.getOnlineUsers(),
+    });
+
+    console.log(`[StageEngine] Bot Simulation is now: ${this.botsEnabled ? "ENABLED (" + this.BOT_NAMES.length + " bots)" : "DISABLED"}`);
+    return this.botsEnabled;
+  }
+
+  public getBotsStatus() {
+    return {
+      enabled: this.botsEnabled,
+      botCount: this.BOT_NAMES.length,
+    };
+  }
+
+  private startBotSimulation() {
+    this.stopBotSimulation();
+
+    // 1. Random KEEP/DROP every 800ms - 1800ms
+    const scheduleNextAction = () => {
+      if (!this.botsEnabled) return;
+      const delay = Math.floor(Math.random() * 1000) + 800;
+      this.botActionTimer = setTimeout(() => {
+        if (!this.botsEnabled) return;
+
+        if (!this.state.isTransitioning && this.state.currentPost) {
+          const botName = this.BOT_NAMES[Math.floor(Math.random() * this.BOT_NAMES.length)];
+          const isKeep = Math.random() < 0.55;
+
+          if (isKeep) {
+            this.handleActionKeep(botName);
+          } else {
+            this.handleActionDrop(botName);
+          }
+        }
+
+        scheduleNextAction();
+      }, delay);
+    };
+
+    scheduleNextAction();
+
+    // 2. Random Chat Comment every 3s - 6s
+    const scheduleNextChat = () => {
+      if (!this.botsEnabled) return;
+      const delay = Math.floor(Math.random() * 3000) + 3000;
+      this.botChatTimer = setTimeout(() => {
+        if (!this.botsEnabled) return;
+
+        if (!this.state.isTransitioning && this.state.currentPost) {
+          const botName = this.BOT_NAMES[Math.floor(Math.random() * this.BOT_NAMES.length)];
+          const comment = this.BOT_COMMENTS[Math.floor(Math.random() * this.BOT_COMMENTS.length)];
+
+          this.handleSendChat(botName, comment);
+        }
+
+        scheduleNextChat();
+      }, delay);
+    };
+
+    scheduleNextChat();
+  }
+
+  private stopBotSimulation() {
+    if (this.botActionTimer) {
+      clearTimeout(this.botActionTimer);
+      this.botActionTimer = null;
+    }
+    if (this.botChatTimer) {
+      clearTimeout(this.botChatTimer);
+      this.botChatTimer = null;
+    }
   }
 
   private async handleStageEnd(status: "dropped" | "top_tier") {
@@ -255,6 +433,7 @@ class StageEngine {
           dropCount: 0,
           isTransitioning: false,
           transitionStatus: "none",
+          isBotsEnabled: this.botsEnabled,
         };
 
         console.log(`[StageEngine] >> NEW POST ON AIR: "${nextPost.title}" (BGM: ${nextPost.bgmCategory}, Priority: ${nextPost.isPriority})`);

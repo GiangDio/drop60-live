@@ -238,6 +238,33 @@ class SoundEngine {
       console.warn("Web Speech API failed:", err);
     }
   }
+
+  // 8. Đọc to bình luận VIP Audio Highlight bằng Web Speech API
+  public speakVipComment(username: string, message: string, actionType: "keep" | "drop") {
+    if (typeof window === "undefined" || !window.speechSynthesis || this.isMuted) return;
+
+    try {
+      window.speechSynthesis.cancel(); // Ưu tiên phát VIP ngay lập tức
+      const cleanMsg = message.replace(/[#*_~`]/g, "").slice(0, 100);
+      const actionText = actionType === "keep" ? "Cộng mười giây cứu bài!" : "Trừ mười giây dìm bài!";
+      const fullSpeech = `${username} bình luận: ${cleanMsg}. ${actionText}`;
+
+      const utterance = new SpeechSynthesisUtterance(fullSpeech);
+      const voices = window.speechSynthesis.getVoices();
+      const viVoice = voices.find((v) => v.lang.includes("vi") || v.lang.includes("VN"));
+      if (viVoice) {
+        utterance.voice = viVoice;
+      }
+      utterance.lang = "vi-VN";
+      utterance.rate = 1.05;
+      utterance.pitch = 1.1; // Slightly higher pitch for VIP excitement
+      utterance.volume = 1.0; // Max volume
+
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn("Web Speech API VIP comment failed:", err);
+    }
+  }
 }
 
 export const soundEngine = new SoundEngine();

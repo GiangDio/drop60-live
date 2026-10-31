@@ -7,11 +7,9 @@ import { soundEngine } from "@/lib/soundEngine";
 import AuthScreen from "@/components/AuthScreen";
 import TopTierModal from "@/components/TopTierModal";
 import CreatePostModal from "@/components/CreatePostModal";
+import AudioHighlightModal from "@/components/AudioHighlightModal";
 import {
-  Radio,
   Users,
-  Wallet,
-  PlusCircle,
   Trophy,
   Volume2,
   VolumeX,
@@ -23,8 +21,10 @@ import {
   ThumbsDown,
   Loader2,
   Plus,
-  LogOut,
-  AlertCircle,
+  Bot,
+  Crown,
+  ArrowUpCircle,
+  ArrowDownCircle,
 } from "lucide-react";
 import { Socket } from "socket.io-client";
 
@@ -48,6 +48,14 @@ interface DanmakuMessage {
   createdAt: string;
 }
 
+interface VipHighlight {
+  id: string;
+  username: string;
+  message: string;
+  actionType: "keep" | "drop";
+  timeDeltaMs: number;
+}
+
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -55,7 +63,6 @@ export default function Home() {
 
   // Realtime Socket states
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [isConnected, setIsConnected] = useState<boolean>(false);
   const [viewerCount, setViewerCount] = useState<number>(0);
 
   // Core Loop Stage states
@@ -75,6 +82,13 @@ export default function Home() {
   // Modals
   const [isTopTierOpen, setIsTopTierOpen] = useState<boolean>(false);
   const [isCreatePostOpen, setIsCreatePostOpen] = useState<boolean>(false);
+  const [isAudioHighlightOpen, setIsAudioHighlightOpen] = useState<boolean>(false);
+
+  // VIP Audio Highlight Alert Box State (5s display)
+  const [activeVipHighlight, setActiveVipHighlight] = useState<VipHighlight | null>(null);
+
+  // Bot Simulation State (Admin test)
+  const [isBotsEnabled, setIsBotsEnabled] = useState<boolean>(false);
 
   // Audio state
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -122,17 +136,8 @@ export default function Home() {
     const s = getSocket(token);
     setSocket(s);
 
-    s.on("connect", () => {
-      setIsConnected(true);
-    });
-
-    s.on("disconnect", () => {
-      setIsConnected(false);
-    });
-
     s.on("connect_error", (err) => {
       console.warn("[Socket Auth Error]:", err.message);
-      setIsConnected(false);
     });
 
     s.on("viewer:count", (count: number) => {
@@ -155,6 +160,7 @@ export default function Home() {
       setIsTransitioning(state.isTransitioning);
       setTransitionStatus(state.transitionStatus);
       if (state.onlineUsers !== undefined) setViewerCount(state.onlineUsers);
+      if (state.isBotsEnabled !== undefined) setIsBotsEnabled(state.isBotsEnabled);
     });
 
     // Core Loop: Tick (every 200ms)
@@ -213,6 +219,25 @@ export default function Home() {
       }
     });
 
+    // Feature 1: VIP Audio Highlight Event (Broadcasted to all clients)
+    s.on("AUDIO_HIGHLIGHT", (data: VipHighlight) => {
+      setActiveVipHighlight(data);
+      soundEngine.playHighlight();
+      soundEngine.speakVipComment(data.username, data.message, data.actionType);
+
+      // Dismiss VIP overlay after 5 seconds
+      setTimeout(() => {
+        setActiveVipHighlight((current) => (current?.id === data.id ? null : current));
+      }, 5000);
+    });
+
+    // Feature 3: Bot Status Change
+    s.on("BOTS_STATUS", (data: { enabled: boolean; botCount: number; onlineUsers?: number }) => {
+      setIsBotsEnabled(data.enabled);
+      if (data.onlineUsers !== undefined) setViewerCount(data.onlineUsers);
+      showToast(data.enabled ? `Đã bật ${data.botCount} Bot Mồi!` : "Đã tắt Bot Mồi.");
+    });
+
     return () => {
       s.disconnect();
     };
@@ -223,17 +248,6 @@ export default function Home() {
     localStorage.setItem("drop60_token", newToken);
     setToken(newToken);
     setUser(newUser);
-  };
-
-  // Logout Handler
-  const handleLogout = () => {
-    localStorage.removeItem("drop60_token");
-    if (socket) {
-      socket.disconnect();
-    }
-    setToken(null);
-    setUser(null);
-    setIsConnected(false);
   };
 
   // Mock Deposit (+20.000đ)
@@ -261,40 +275,20 @@ export default function Home() {
     setChatInput("");
   };
 
-  // Highlight Chat Send (5,000 VND)
-  const handleHighlightChat = async () => {
-    if (!token || !chatInput.trim()) {
-      showToast("Vui lòng nhập nội dung trước khi ghim.");
-      return;
-    }
-
-    if ((user?.balance || 0) < 5000) {
-      showToast("Số dư không đủ 5.000 VNĐ để ghim bình luận.");
-      return;
-    }
-
-    const API_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
-    try {
-      const res = await fetch(`${API_URL}/api/posts/highlight-chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ message: chatInput.trim() }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.balance !== undefined) {
-        setUser((prev) => (prev ? { ...prev, balance: data.balance } : null));
-        setChatInput("");
-        soundEngine.playHighlight();
-        showToast("Đã ghim bình luận 5.000đ!");
-      } else {
-        showToast(data.error || "Ghim thất bại.");
+  // Toggle Bot Simulation (Admin Local Feature)
+  const handleToggleBots = async () => {
+    if (socket && socket.connected) {
+      socket.emit("ADMIN_TOGGLE_BOTS");
+    } else {
+      const API_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+      try {
+        const res = await fetch(`${API_URL}/api/posts/toggle-bots`, { method: "POST" });
+        const data = await res.json();
+        setIsBotsEnabled(data.botsEnabled);
+        showToast(data.message);
+      } catch (err) {
+        console.warn("Toggle bots failed:", err);
       }
-    } catch {
-      showToast("Lỗi máy chủ khi ghim bình luận.");
     }
   };
 
@@ -334,7 +328,7 @@ export default function Home() {
   // Keyboard Shortcuts: 'K' / 'Space' for Keep, 'D' for Drop
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (document.activeElement?.tagName === "INPUT") return;
+      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
       if (e.key === "k" || e.key === "K" || e.key === " ") {
         handleKeep();
       } else if (e.key === "d" || e.key === "D") {
@@ -424,7 +418,7 @@ export default function Home() {
         {/* TẦNG 1: TOP BAR (10% Chiều cao)                          */}
         {/* ======================================================== */}
         <header className="h-[10%] w-full bg-neutral-950/90 border-b border-neutral-800/80 px-2.5 py-1.5 flex items-center justify-between z-30 shrink-0">
-          {/* Góc Trái: Logo + Chấm đỏ + Viewer count */}
+          {/* Góc Trái: Logo + Chấm đỏ + Viewer count + Nút Bot Mồi */}
           <div className="flex items-center gap-1.5 shrink-0">
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
@@ -436,6 +430,20 @@ export default function Home() {
               <Users className="w-2.5 h-2.5 text-emerald-400" />
               <span className="font-bold">{viewerCount}</span>
             </div>
+
+            {/* Nút [🤖 Bật/Tắt Bot Mồi] (Admin Test Local) */}
+            <button
+              onClick={handleToggleBots}
+              className={`px-1.5 py-0.5 rounded-lg border text-[9px] font-bold flex items-center gap-1 transition-all ${
+                isBotsEnabled
+                  ? "bg-emerald-950/80 border-emerald-500/80 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.4)] animate-pulse"
+                  : "bg-neutral-900/80 border-neutral-800 text-neutral-400 hover:text-white"
+              }`}
+              title="Bật/Tắt Bot Mồi tự động bấm KEEP/DROP và bình luận giả lập phòng đông (Admin Local)"
+            >
+              <Bot className="w-2.5 h-2.5" />
+              <span>{isBotsEnabled ? "Bot: BẬT" : "Bot: TẮT"}</span>
+            </button>
           </div>
 
           {/* Chính Giữa: Đồng hồ đếm ngược cỡ lớn MM:SS.ms */}
@@ -553,6 +561,47 @@ export default function Home() {
             </p>
           </div>
 
+          {/* LỚP PHỦ VIP AUDIO HIGHLIGHT: Khung thông báo phát sáng cố định trong 5 giây */}
+          {activeVipHighlight && (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 w-[88%] max-w-[340px] p-3.5 rounded-3xl bg-neutral-950/95 border-2 border-amber-400 shadow-[0_0_50px_rgba(245,158,11,0.65)] backdrop-blur-xl flex flex-col items-center text-center animate-in zoom-in-95 fade-in duration-200 select-none">
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[9px] font-black tracking-widest uppercase mb-1.5">
+                <Crown className="w-3.5 h-3.5 text-amber-400" />
+                <span>VIP AUDIO HIGHLIGHT</span>
+                <Sparkles className="w-3 h-3 text-amber-400 animate-spin" />
+              </div>
+
+              <div className="flex items-center gap-1 text-[11px] font-mono text-neutral-400 mb-1">
+                <span>Khán giả VIP:</span>
+                <strong className="text-amber-300 font-bold">@{activeVipHighlight.username}</strong>
+              </div>
+
+              {/* Tác động +10s / -10s */}
+              <div className="my-1">
+                {activeVipHighlight.actionType === "keep" ? (
+                  <span className="px-3 py-1 rounded-xl bg-emerald-950 border border-emerald-400 text-emerald-300 font-black text-xs sm:text-sm tracking-wider shadow-lg shadow-emerald-900/50 flex items-center gap-1 animate-pulse">
+                    <ArrowUpCircle className="w-4 h-4 text-emerald-400" />
+                    <span>+10 GIÂY (CỨU BÀI)</span>
+                  </span>
+                ) : (
+                  <span className="px-3 py-1 rounded-xl bg-red-950 border border-red-500 text-red-300 font-black text-xs sm:text-sm tracking-wider shadow-lg shadow-red-900/50 flex items-center gap-1 animate-pulse">
+                    <ArrowDownCircle className="w-4 h-4 text-red-400" />
+                    <span>-10 GIÂY (DÌM BÀI)</span>
+                  </span>
+                )}
+              </div>
+
+              {/* Nội dung bình luận */}
+              <div className="mt-1.5 px-3 py-2 rounded-2xl bg-black/60 border border-amber-500/30 text-white text-xs sm:text-sm font-extrabold leading-snug w-full break-words">
+                &ldquo;{activeVipHighlight.message}&rdquo;
+              </div>
+
+              <div className="mt-2 text-[9px] font-mono text-amber-400/80 flex items-center gap-1 animate-pulse">
+                <Volume2 className="w-3 h-3" />
+                <span>Đang đọc to toàn phòng chiếu (Web Speech)...</span>
+              </div>
+            </div>
+          )}
+
           {/* LỚP PHỦ KẾT THÚC: Con dấu khổng lồ DROPPED hoặc TOP TIER */}
           {isTransitioning && (
             <div className="absolute inset-0 bg-black/85 backdrop-blur-md z-40 flex flex-col items-center justify-center p-4 text-center animate-in fade-in zoom-in-95 duration-200">
@@ -610,11 +659,11 @@ export default function Home() {
             </button>
           </form>
 
-          {/* Nút [🔊 Ghim 5k] */}
+          {/* Nút [🔊 Ghim 5k]: Mở AudioHighlightModal với +10s hoặc -10s */}
           <button
-            onClick={handleHighlightChat}
+            onClick={() => setIsAudioHighlightOpen(true)}
             className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-black font-black text-[11px] shadow-md shadow-amber-600/20 active:scale-95 transition-all shrink-0"
-            title="Ghim bình luận nổi bật (5.000 VNĐ)"
+            title="Ghim bình luận nổi bật + Đọc TTS + Thao túng 10 giây (5.000 VNĐ)"
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>Ghim 5k</span>
@@ -686,6 +735,16 @@ export default function Home() {
 
       {/* Modals */}
       <TopTierModal isOpen={isTopTierOpen} onClose={() => setIsTopTierOpen(false)} />
+      <AudioHighlightModal
+        isOpen={isAudioHighlightOpen}
+        onClose={() => setIsAudioHighlightOpen(false)}
+        token={token}
+        userBalance={user.balance}
+        onSuccess={(newBalance) => {
+          setUser((prev) => (prev ? { ...prev, balance: newBalance } : null));
+          showToast("Đã kích hoạt VIP Audio Highlight 5.000đ!");
+        }}
+      />
       <CreatePostModal
         isOpen={isCreatePostOpen}
         onClose={() => setIsCreatePostOpen(false)}
@@ -693,7 +752,7 @@ export default function Home() {
         userBalance={user.balance}
         onSuccess={(newBalance) => {
           setUser((prev) => (prev ? { ...prev, balance: newBalance } : null));
-          showToast("Bài đã được thêm vào hàng chờ phát sóng!");
+          showToast("Bài đã được đưa vào hàng đợi phát sóng!");
         }}
       />
     </div>

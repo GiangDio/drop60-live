@@ -1,7 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { X, PlusCircle, Sparkles, Image as ImageIcon, Music, Zap, Loader2, AlertCircle } from "lucide-react";
+import {
+  X,
+  PlusCircle,
+  Sparkles,
+  Image as ImageIcon,
+  Music,
+  Zap,
+  Loader2,
+  AlertCircle,
+  Send,
+  ShieldCheck,
+} from "lucide-react";
 
 interface CreatePostModalProps {
   isOpen: boolean;
@@ -28,14 +39,16 @@ export default function CreatePostModal({
   const [title, setTitle] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>(PRESET_IMAGES[0]);
   const [bgmCategory, setBgmCategory] = useState<string>("dramatic");
-  const [isPriority, setIsPriority] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [submittingType, setSubmittingType] = useState<"free" | "priority" | null>(null);
   const [error, setError] = useState<string>("");
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const PRIORITY_FEE = 25000;
+  const isPriorityAffordable = userBalance >= PRIORITY_FEE;
+
+  const handlePost = async (isPriority: boolean) => {
     setError("");
 
     if (!title.trim()) {
@@ -43,12 +56,14 @@ export default function CreatePostModal({
       return;
     }
 
-    if (isPriority && userBalance < 10000) {
-      setError("Số dư không đủ 10.000 VNĐ để chọn Hàng chờ Ưu tiên. Vui lòng nạp thêm tiền.");
+    if (isPriority && !isPriorityAffordable) {
+      setError("Số dư ví không đủ 25.000 VNĐ để lên sóng ưu tiên. Vui lòng bấm [+ Nạp 20k] trước!");
       return;
     }
 
     setLoading(true);
+    setSubmittingType(isPriority ? "priority" : "free");
+
     const API_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
 
     try {
@@ -71,18 +86,27 @@ export default function CreatePostModal({
         setError(data.error || "Đăng bài thất bại.");
       } else {
         onSuccess(data.balance);
+        setTitle("");
         onClose();
       }
     } catch {
       setError("Lỗi kết nối máy chủ khi đăng bài.");
     } finally {
       setLoading(false);
+      setSubmittingType(null);
     }
+  };
+
+  const formatVND = (num: number) => {
+    return new Intl.NumberFormat("vi-VN", {
+      style: "currency",
+      currency: "VND",
+    }).format(num);
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/80 backdrop-blur-md animate-in fade-in select-none">
-      <div className="w-full max-w-sm sm:max-w-md max-h-[90vh] bg-neutral-900 border border-neutral-700 rounded-3xl shadow-2xl flex flex-col overflow-hidden relative">
+      <div className="w-full max-w-sm sm:max-w-md max-h-[92vh] bg-neutral-900 border border-neutral-700 rounded-3xl shadow-2xl flex flex-col overflow-hidden relative">
         {/* Header */}
         <div className="p-4 border-b border-neutral-800 flex items-center justify-between bg-neutral-950/80">
           <div className="flex items-center gap-2.5">
@@ -91,7 +115,7 @@ export default function CreatePostModal({
             </div>
             <div>
               <h2 className="font-black text-sm text-white tracking-wide">ĐƯA BÀI LÊN SÂN KHẤU 24/7</h2>
-              <p className="text-[10px] text-neutral-400">Xếp vào hàng chờ sinh tồn DROP60.LIVE</p>
+              <p className="text-[10px] text-neutral-400">Khán giả toàn cầu sẽ quyết định số phận bài của bạn</p>
             </div>
           </div>
 
@@ -104,13 +128,24 @@ export default function CreatePostModal({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
           {error && (
             <div className="flex items-center gap-2 p-2.5 rounded-xl bg-red-950/60 border border-red-500/40 text-red-300 text-xs">
               <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
               <span>{error}</span>
             </div>
           )}
+
+          {/* User Balance Bar */}
+          <div className="flex items-center justify-between p-2 rounded-xl bg-neutral-950 border border-neutral-800 text-xs">
+            <span className="text-neutral-400 flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              Số dư ví của bạn:
+            </span>
+            <span className="font-mono font-bold text-amber-300">
+              {formatVND(userBalance)}
+            </span>
+          </div>
 
           {/* Title */}
           <div className="space-y-1">
@@ -130,7 +165,7 @@ export default function CreatePostModal({
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-neutral-300 flex items-center gap-1">
               <ImageIcon className="w-3.5 h-3.5 text-neutral-400" />
-              Link ảnh (Unsplash / Trực tiếp)
+              Link ảnh (Unsplash / URL trực tiếp)
             </label>
             <input
               type="url"
@@ -138,11 +173,11 @@ export default function CreatePostModal({
               value={imageUrl}
               onChange={(e) => setImageUrl(e.target.value)}
               placeholder="https://images.unsplash.com/..."
-              className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-red-500 font-mono"
+              className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-red-500 font-mono text-[11px]"
             />
 
             {/* Presets */}
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-0.5">
               <span className="text-[10px] text-neutral-400">Mẫu sẵn:</span>
               {PRESET_IMAGES.map((img, i) => (
                 <button
@@ -150,7 +185,7 @@ export default function CreatePostModal({
                   type="button"
                   onClick={() => setImageUrl(img)}
                   className={`w-7 h-7 rounded-lg bg-cover bg-center border transition-all ${
-                    imageUrl === img ? "border-red-500 scale-110 shadow" : "border-neutral-700 opacity-60 hover:opacity-100"
+                    imageUrl === img ? "border-red-500 scale-110 shadow-md ring-2 ring-red-500/50" : "border-neutral-700 opacity-60 hover:opacity-100"
                   }`}
                   style={{ backgroundImage: `url('${img}')` }}
                 />
@@ -166,18 +201,18 @@ export default function CreatePostModal({
             </label>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { id: "dramatic", label: "Dramatic (Kịch tính)", desc: "Hồi hộp, cao trào" },
-                { id: "upbeat", label: "Upbeat (Sôi động)", desc: "EDM, năng lượng" },
-                { id: "moody", label: "Moody (Chill/Deep)", desc: "Trầm lắng, đêm muộn" },
-                { id: "funny", label: "Funny (Hài hước)", desc: "Vui vẻ, troll" },
+                { id: "dramatic", label: "Dramatic", desc: "Hồi hộp, cao trào" },
+                { id: "upbeat", label: "Upbeat", desc: "EDM, năng lượng" },
+                { id: "moody", label: "Moody", desc: "Trầm lắng, đêm" },
+                { id: "funny", label: "Funny", desc: "Vui vẻ, troll" },
               ].map((bgm) => (
                 <button
                   key={bgm.id}
                   type="button"
                   onClick={() => setBgmCategory(bgm.id)}
-                  className={`p-2.5 rounded-xl border text-left transition-all ${
+                  className={`p-2 rounded-xl border text-left transition-all ${
                     bgmCategory === bgm.id
-                      ? "bg-red-950/40 border-red-500/80 text-white shadow-sm"
+                      ? "bg-red-950/40 border-red-500/80 text-white shadow-sm ring-1 ring-red-500/50"
                       : "bg-neutral-950/60 border-neutral-800 text-neutral-400 hover:text-white"
                   }`}
                 >
@@ -188,61 +223,61 @@ export default function CreatePostModal({
             </div>
           </div>
 
-          {/* Priority Queue Option */}
-          <div
-            onClick={() => setIsPriority(!isPriority)}
-            className={`p-3 rounded-2xl border cursor-pointer transition-all flex items-center justify-between ${
-              isPriority
-                ? "bg-amber-950/30 border-amber-500/70 shadow-md shadow-amber-950/30"
-                : "bg-neutral-950 border-neutral-800 hover:border-neutral-700"
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <div
-                className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                  isPriority ? "bg-amber-500 text-black font-black" : "bg-neutral-800 text-neutral-400"
-                }`}
-              >
-                <Zap className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <span>Hàng chờ Ưu tiên</span>
-                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
-                    10.000 VNĐ
-                  </span>
+          {/* 2 NÚT GỬI BÀI */}
+          <div className="pt-2 grid grid-cols-1 gap-2.5">
+            {/* Nút 1: Đăng thường - Miễn phí */}
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => handlePost(false)}
+              className="w-full py-2.5 px-3 rounded-xl border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 active:scale-98 transition-all flex items-center justify-between text-left disabled:opacity-50"
+            >
+              <div className="flex items-center gap-2">
+                <Send className="w-4 h-4 text-neutral-300" />
+                <div>
+                  <div className="text-xs font-bold text-white">Đăng thường - Miễn phí</div>
+                  <div className="text-[9px] text-neutral-400">Xếp vào hàng chờ thường theo thứ tự</div>
                 </div>
-                <p className="text-[10px] text-neutral-400">Chiếu ngay sau bài hiện tại, vượt mọi bài thường</p>
               </div>
-            </div>
+              <span className="text-[11px] font-mono font-bold text-neutral-300">0đ</span>
+            </button>
 
-            <input
-              type="checkbox"
-              checked={isPriority}
-              onChange={() => {}}
-              className="accent-amber-500 w-4 h-4 rounded"
-            />
+            {/* Nút 2: [⚡ Lên sóng ngay - 25.000đ] */}
+            <button
+              type="button"
+              disabled={loading || !isPriorityAffordable}
+              onClick={() => handlePost(true)}
+              className={`w-full py-3 px-3 rounded-xl border text-left transition-all flex items-center justify-between shadow-lg disabled:opacity-40 disabled:pointer-events-none ${
+                isPriorityAffordable
+                  ? "bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-500 hover:brightness-110 active:scale-98 border-amber-400/80 shadow-amber-600/30"
+                  : "bg-neutral-950 border-neutral-800"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-black/20 flex items-center justify-center text-black">
+                  <Zap className="w-4 h-4 text-black animate-pulse" />
+                </div>
+                <div>
+                  <div className="text-xs font-black text-black tracking-wide flex items-center gap-1">
+                    <span>⚡ LÊN SÓNG NGAY</span>
+                  </div>
+                  <div className="text-[9px] text-neutral-900 font-semibold">Phát sóng ngay sau bài hiện tại!</div>
+                </div>
+              </div>
+
+              {submittingType === "priority" && loading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-black" />
+              ) : (
+                <div className="text-right">
+                  <div className="text-xs font-black font-mono text-black">25.000đ</div>
+                  {!isPriorityAffordable && (
+                    <div className="text-[8px] text-red-400 font-bold">Ví không đủ</div>
+                  )}
+                </div>
+              )}
+            </button>
           </div>
-
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 px-4 rounded-xl font-bold text-xs tracking-wider uppercase bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white shadow-lg shadow-red-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Đang xử lý...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                <span>{isPriority ? "ĐĂNG BÀI ƯU TIÊN (10K)" : "ĐĂNG BÀI MIỄN PHÍ"}</span>
-              </>
-            )}
-          </button>
-        </form>
+        </div>
       </div>
     </div>
   );

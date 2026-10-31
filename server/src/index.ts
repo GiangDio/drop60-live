@@ -116,6 +116,11 @@ io.on("connection", (socket: Socket) => {
     stageEngine.handleSendChat(user.username, data?.message);
   });
 
+  // 6. Handle ADMIN_TOGGLE_BOTS -> toggle bot simulation
+  socket.on("ADMIN_TOGGLE_BOTS", () => {
+    stageEngine.toggleBots();
+  });
+
   socket.on("disconnect", () => {
     console.log(`[Socket.io] User disconnected: ${user.username} (${socket.id}) | Online: ${stageEngine.getOnlineUsers()}`);
   });

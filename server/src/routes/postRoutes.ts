@@ -35,7 +35,7 @@ router.get("/top-tier", async (_req, res: Response): Promise<void> => {
   }
 });
 
-// POST /api/posts/create - Đăng bài mới lên hàng chờ
+// POST /api/posts/create - Đăng bài mới lên hàng chờ (Miễn phí hoặc 25.000đ cho Priority Queue)
 router.post("/create", authenticateToken, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     if (!req.user) {
@@ -60,18 +60,18 @@ router.post("/create", authenticateToken, async (req: AuthenticatedRequest, res:
       formattedImages = ["https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&w=1200&q=80"];
     }
 
-    const PRIORITY_FEE = 10000.0;
+    const PRIORITY_FEE = 25000.0; // 25.000 VNĐ cho Hàng chờ Ưu tiên
     const priority = Boolean(isPriority);
 
     const result = await prisma.$transaction(async (tx) => {
-      // If priority queue is requested, deduct 10,000 VND
+      // If priority queue is requested, deduct 25,000 VND
       if (priority) {
         const currentUser = await tx.user.findUnique({
           where: { id: req.user!.userId },
         });
 
         if (!currentUser || currentUser.balance < PRIORITY_FEE) {
-          throw new Error("Số dư không đủ 10.000 VNĐ để đặt hàng chờ ưu tiên.");
+          throw new Error("Số dư không đủ 25.000 VNĐ để đặt hàng chờ ưu tiên 'Lên sóng ngay'. Vui lòng nạp thêm tiền.");
         }
 
         await tx.user.update({
@@ -115,8 +115,8 @@ router.post("/create", authenticateToken, async (req: AuthenticatedRequest, res:
 
     res.status(201).json({
       message: priority
-        ? "Đăng bài Ưu tiên thành công! Trừ 10.000 VNĐ."
-        : "Đăng bài thành công vào hàng đợi!",
+        ? "Đăng bài Ưu tiên thành công! Trừ 25.000 VNĐ (sẽ phát sóng ngay bài kế tiếp)."
+        : "Đăng bài Miễn phí thành công vào hàng đợi!",
       post: result.post,
       balance: result.balance,
     });
@@ -128,7 +128,7 @@ router.post("/create", authenticateToken, async (req: AuthenticatedRequest, res:
   }
 });
 
-// POST /api/posts/highlight-chat - Ghim bình luận âm thanh 5k
+// POST /api/posts/highlight-chat - Audio Highlight 5k (+10s hoặc -10s)
 router.post("/highlight-chat", authenticateToken, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     if (!req.user) {
@@ -136,12 +136,18 @@ router.post("/highlight-chat", authenticateToken, async (req: AuthenticatedReque
       return;
     }
 
-    const { message } = req.body;
+    const { message, actionType } = req.body;
     if (!message || typeof message !== "string" || message.trim().length === 0) {
       res.status(400).json({ error: "Nội dung bình luận không được trống." });
       return;
     }
 
+    if (message.trim().length > 100) {
+      res.status(400).json({ error: "Nội dung bình luận tối đa 100 ký tự." });
+      return;
+    }
+
+    const type = actionType === "drop" ? "drop" : "keep";
     const HIGHLIGHT_FEE = 5000.0;
 
     const result = await prisma.$transaction(async (tx) => {
@@ -150,7 +156,7 @@ router.post("/highlight-chat", authenticateToken, async (req: AuthenticatedReque
       });
 
       if (!currentUser || currentUser.balance < HIGHLIGHT_FEE) {
-        throw new Error("Số dư không đủ 5.000 VNĐ để ghim bình luận.");
+        throw new Error("Số dư không đủ 5.000 VNĐ để ghim bình luận Audio Highlight.");
       }
 
       const updatedUser = await tx.user.update({
@@ -170,11 +176,11 @@ router.post("/highlight-chat", authenticateToken, async (req: AuthenticatedReque
       return { balance: updatedUser.balance };
     });
 
-    // Broadcast highlight danmaku across all viewers
-    stageEngine.handleSendHighlightChat(req.user.username, message);
+    // Broadcast VIP Audio Highlight event & impact +10s / -10s
+    stageEngine.handleAudioHighlight(req.user.username, message.trim(), type);
 
     res.status(200).json({
-      message: "Ghim bình luận 5.000 VNĐ thành công!",
+      message: `Audio Highlight 5.000 VNĐ thành công! Tác động ${type === "keep" ? "+10s (Cứu bài)" : "-10s (Dìm bài)"}.`,
       balance: result.balance,
     });
   } catch (error) {
@@ -183,6 +189,17 @@ router.post("/highlight-chat", authenticateToken, async (req: AuthenticatedReque
       error: error instanceof Error ? error.message : "Lỗi khi ghim bình luận.",
     });
   }
+});
+
+// POST /api/posts/toggle-bots - Bật/Tắt Bot Mồi giả lập
+router.post("/toggle-bots", (_req, res: Response): Promise<void> => {
+  const isEnabled = stageEngine.toggleBots();
+  res.status(200).json({
+    message: isEnabled ? "Đã bật Bot Mồi giả lập phòng chiếu!" : "Đã tắt Bot Mồi.",
+    botsEnabled: isEnabled,
+    onlineUsers: stageEngine.getOnlineUsers(),
+  });
+  return Promise.resolve();
 });
 
 export default router;
