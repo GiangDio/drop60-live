@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { getSocket } from "@/lib/socket";
 import { authApi, User } from "@/lib/api";
-import { soundEngine } from "@/lib/soundEngine";
+import { audioManager } from "@/lib/audioManager";
 import AuthScreen from "@/components/AuthScreen";
 import TopTierModal from "@/components/TopTierModal";
 import CreatePostModal from "@/components/CreatePostModal";
@@ -92,6 +92,7 @@ export default function Home() {
 
   // Audio state
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(false);
 
   // Action Button animation state
   const [isDropActive, setIsDropActive] = useState<boolean>(false);
@@ -103,12 +104,14 @@ export default function Home() {
   // Track post ID to trigger TTS only once per post
   const spokenPostIdRef = useRef<string | null>(null);
 
-  // 1. Initial Auth Check on Mount
+  // 1. Initial Auth Check on Mount & Autoplay Unlock Listener
   useEffect(() => {
+    const unsubUnlock = audioManager.onUnlockChange(setIsAudioUnlocked);
+
     const savedToken = localStorage.getItem("drop60_token");
     if (!savedToken) {
       setIsCheckingAuth(false);
-      return;
+      return unsubUnlock;
     }
 
     authApi
@@ -127,6 +130,10 @@ export default function Home() {
       .finally(() => {
         setIsCheckingAuth(false);
       });
+
+    return () => {
+      unsubUnlock();
+    };
   }, []);
 
   // 2. Connect to Socket.io and handle Core Loop events
@@ -148,9 +155,11 @@ export default function Home() {
     s.on("STAGE_INITIAL_STATE", (state) => {
       if (state.currentPost) {
         setCurrentPost(state.currentPost);
+        audioManager.playBgm(state.currentPost.bgmCategory);
+
         if (state.elapsedMs <= 10000 && spokenPostIdRef.current !== state.currentPost.id) {
           spokenPostIdRef.current = state.currentPost.id;
-          soundEngine.speakPostTitle(state.currentPost.title);
+          audioManager.speakWithDucking(state.currentPost.title);
         }
       }
       setRemainingMs(state.remainingMs);
@@ -170,6 +179,11 @@ export default function Home() {
       setKeepCount(tick.keepCount);
       setDropCount(tick.dropCount);
       if (tick.onlineUsers !== undefined) setViewerCount(tick.onlineUsers);
+
+      // SFX: Urgent tick when remaining time < 10 seconds
+      if (tick.remainingMs < 10000 && tick.remainingMs > 0 && !isTransitioning) {
+        audioManager.playUrgentTick();
+      }
     });
 
     // Core Loop: New Post on Air
@@ -182,10 +196,15 @@ export default function Home() {
       setIsTransitioning(false);
       setTransitionStatus("none");
 
-      // Web Speech API: Read title aloud in the first 10 seconds
-      if (data.post && spokenPostIdRef.current !== data.post.id) {
-        spokenPostIdRef.current = data.post.id;
-        soundEngine.speakPostTitle(data.post.title);
+      if (data.post) {
+        // Crossfade to new post's BGM
+        audioManager.playBgm(data.post.bgmCategory);
+
+        // Audio Ducking + Web Speech API: Read title aloud in the first 10 seconds
+        if (spokenPostIdRef.current !== data.post.id) {
+          spokenPostIdRef.current = data.post.id;
+          audioManager.speakWithDucking(data.post.title);
+        }
       }
     });
 
@@ -198,9 +217,9 @@ export default function Home() {
       setDropCount(data.dropCount);
 
       if (data.status === "top_tier") {
-        soundEngine.playStampTopTier();
+        audioManager.playStampTopTier();
       } else {
-        soundEngine.playStampDropped();
+        audioManager.playStampDropped();
       }
     });
 
@@ -211,19 +230,19 @@ export default function Home() {
       const fullDanmaku: DanmakuMessage = { ...danmaku, topPercent };
 
       setDanmakus((prev) => [...prev.slice(-20), fullDanmaku]);
-
-      if (danmaku.isHighlight) {
-        soundEngine.playHighlight();
-      } else {
-        soundEngine.playChat();
-      }
+      audioManager.playChat();
     });
 
-    // Feature 1: VIP Audio Highlight Event (Broadcasted to all clients)
+    // Feature 1: VIP Audio Highlight Event (Broadcasted to all clients with Audio Ducking)
     s.on("AUDIO_HIGHLIGHT", (data: VipHighlight) => {
       setActiveVipHighlight(data);
-      soundEngine.playHighlight();
-      soundEngine.speakVipComment(data.username, data.message, data.actionType);
+      audioManager.playKeep();
+
+      const actionText = data.actionType === "keep" ? "Cộng mười giây cứu bài!" : "Trừ mười giây dìm bài!";
+      const vipSpeech = `${data.username} bình luận: ${data.message}. ${actionText}`;
+
+      // Audio Ducking: lowers BGM to 0.12 while speaking, then fades back to 0.5
+      audioManager.speakWithDucking(vipSpeech, { pitch: 1.1, rate: 1.05 });
 
       // Dismiss VIP overlay after 5 seconds
       setTimeout(() => {
@@ -241,7 +260,7 @@ export default function Home() {
     return () => {
       s.disconnect();
     };
-  }, [token, user]);
+  }, [token, user, isTransitioning]);
 
   // Auth Success Handler
   const handleAuthSuccess = (newToken: string, newUser: User) => {
@@ -258,7 +277,7 @@ export default function Home() {
       const res = await authApi.mockDeposit(token);
       if (res.balance !== undefined) {
         setUser((prev) => (prev ? { ...prev, balance: res.balance } : null));
-        soundEngine.playHighlight();
+        audioManager.playKeep();
         showToast("+20.000 VNĐ đã cộng vào ví!");
       }
     } catch (err) {
@@ -271,6 +290,7 @@ export default function Home() {
     e.preventDefault();
     if (!socket || !chatInput.trim()) return;
 
+    audioManager.unlockAudio();
     socket.emit("SEND_CHAT", { message: chatInput.trim() });
     setChatInput("");
   };
@@ -294,8 +314,9 @@ export default function Home() {
 
   // Time Manipulation Actions: KEEP & DROP
   const handleDrop = () => {
+    audioManager.unlockAudio();
     if (socket && !isTransitioning) {
-      soundEngine.playDrop();
+      audioManager.playDrop();
       setIsDropActive(true);
       setTimeout(() => setIsDropActive(false), 120);
       socket.emit("ACTION_DROP");
@@ -303,8 +324,9 @@ export default function Home() {
   };
 
   const handleKeep = () => {
+    audioManager.unlockAudio();
     if (socket && !isTransitioning) {
-      soundEngine.playKeep();
+      audioManager.playKeep();
       setIsKeepActive(true);
       setTimeout(() => setIsKeepActive(false), 120);
       socket.emit("ACTION_KEEP");
@@ -318,11 +340,8 @@ export default function Home() {
 
   // Toggle Mute Audio
   const toggleMute = () => {
-    const nextMuted = soundEngine.toggleMute();
+    const nextMuted = audioManager.toggleMute();
     setIsMuted(nextMuted);
-    if (nextMuted && typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
   };
 
   // Keyboard Shortcuts: 'K' / 'Space' for Keep, 'D' for Drop
@@ -513,6 +532,19 @@ export default function Home() {
           {/* Stage Shadow Gradients */}
           <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-black/40 pointer-events-none" />
 
+          {/* NÚT CHẠM ĐỂ BẬT ÂM THANH (AUTOPLAY POLICY UNLOCK) */}
+          {!isAudioUnlocked && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30">
+              <button
+                onClick={() => audioManager.unlockAudio()}
+                className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-black text-[11px] shadow-[0_0_25px_rgba(239,68,68,0.8)] border border-amber-300 flex items-center gap-1.5 animate-bounce active:scale-95 transition-all cursor-pointer"
+              >
+                <Volume2 className="w-3.5 h-3.5 text-amber-200 animate-pulse" />
+                <span>🔊 Chạm để bật âm thanh sân khấu</span>
+              </button>
+            </div>
+          )}
+
           {/* LỚP PHỦ DANMAKU: Bình luận bay ngang từ phải sang trái */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
             {danmakus.map((d) => (
@@ -541,7 +573,7 @@ export default function Home() {
             <div className="flex items-center gap-1.5 flex-wrap">
               {currentPost?.bgmCategory && (
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-black/70 text-amber-300 border border-amber-500/40 backdrop-blur-md">
-                  <Music className="w-2.5 h-2.5" />
+                  <Music className="w-2.5 h-2.5 animate-pulse" />
                   BGM: {currentPost.bgmCategory}
                 </span>
               )}
@@ -567,7 +599,7 @@ export default function Home() {
               <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[9px] font-black tracking-widest uppercase mb-1.5">
                 <Crown className="w-3.5 h-3.5 text-amber-400" />
                 <span>VIP AUDIO HIGHLIGHT</span>
-                <Sparkles className="w-3 h-3 text-amber-400 animate-spin" />
+                <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-spin" />
               </div>
 
               <div className="flex items-center gap-1 text-[11px] font-mono text-neutral-400 mb-1">
@@ -597,7 +629,7 @@ export default function Home() {
 
               <div className="mt-2 text-[9px] font-mono text-amber-400/80 flex items-center gap-1 animate-pulse">
                 <Volume2 className="w-3 h-3" />
-                <span>Đang đọc to toàn phòng chiếu (Web Speech)...</span>
+                <span>Audio Ducking: Đang phát giọng đọc VIP...</span>
               </div>
             </div>
           )}
