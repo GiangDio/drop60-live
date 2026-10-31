@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import prisma from "../prisma";
 import { Post } from "@prisma/client";
+import { ttsService } from "./ttsService";
 
 export interface StageState {
   currentPost: (Post & { user?: { username: string } }) | null;
@@ -11,6 +12,7 @@ export interface StageState {
   isTransitioning: boolean;
   transitionStatus: "none" | "dropped" | "top_tier";
   isBotsEnabled?: boolean;
+  ttsTitleUrl?: string;
 }
 
 export interface VipAudioHighlightEvent {
@@ -22,6 +24,7 @@ export interface VipAudioHighlightEvent {
   remainingMs: number;
   elapsedMs: number;
   createdAt: string;
+  ttsCommentUrl?: string;
 }
 
 class StageEngine {
@@ -173,8 +176,8 @@ class StageEngine {
     });
   }
 
-  // Feature: Audio Highlight 5k with +10s (Keep) or -10s (Drop)
-  public handleAudioHighlight(username: string, rawMessage: string, actionType: "keep" | "drop" = "keep") {
+  // Feature: Audio Highlight 5k with +10s (Keep) or -10s (Drop) and TTS Stream
+  public async handleAudioHighlight(username: string, rawMessage: string, actionType: "keep" | "drop" = "keep") {
     if (this.state.isTransitioning || !this.state.currentPost) return;
 
     const message = rawMessage?.trim();
@@ -194,6 +197,17 @@ class StageEngine {
       this.state.remainingMs = Math.max(0, this.state.remainingMs - TIME_DELTA_MS);
     }
 
+    // Generate synced server-side TTS audio for all clients
+    let ttsCommentUrl = "";
+    try {
+      const actionText = actionType === "keep" ? "Cộng mười giây cứu bài!" : "Trừ mười giây dìm bài!";
+      const speech = `${username} bình luận: ${message}. ${actionText}`;
+      const ttsRes = await ttsService.synthesize(speech);
+      ttsCommentUrl = ttsRes.url;
+    } catch (err) {
+      console.warn("[StageEngine] TTS synthesize error for comment:", err);
+    }
+
     const highlightEvent: VipAudioHighlightEvent = {
       id: "hl_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
       username,
@@ -203,9 +217,10 @@ class StageEngine {
       remainingMs: this.state.remainingMs,
       elapsedMs: this.state.elapsedMs,
       createdAt: new Date().toISOString(),
+      ttsCommentUrl,
     };
 
-    console.log(`[StageEngine] VIP AUDIO HIGHLIGHT from @${username} (${actionType.toUpperCase()} 10s): "${message}"`);
+    console.log(`[StageEngine] VIP AUDIO HIGHLIGHT from @${username} (${actionType.toUpperCase()} 10s): "${message}" (TTS: ${ttsCommentUrl || "none"})`);
 
     // 1. Broadcast VIP Audio Highlight event to all clients
     this.io?.emit("AUDIO_HIGHLIGHT", highlightEvent);
@@ -424,6 +439,15 @@ class StageEngine {
           data: { status: "live" },
         });
 
+        // Synthesize synchronized TTS audio for post title
+        let ttsTitleUrl = "";
+        try {
+          const ttsRes = await ttsService.synthesize(nextPost.title);
+          ttsTitleUrl = ttsRes.url;
+        } catch (ttsErr) {
+          console.warn("[StageEngine] Failed to synthesize title TTS:", ttsErr);
+        }
+
         // Reset in-memory state
         this.state = {
           currentPost: nextPost,
@@ -434,17 +458,19 @@ class StageEngine {
           isTransitioning: false,
           transitionStatus: "none",
           isBotsEnabled: this.botsEnabled,
+          ttsTitleUrl,
         };
 
-        console.log(`[StageEngine] >> NEW POST ON AIR: "${nextPost.title}" (BGM: ${nextPost.bgmCategory}, Priority: ${nextPost.isPriority})`);
+        console.log(`[StageEngine] >> NEW POST ON AIR: "${nextPost.title}" (BGM: ${nextPost.bgmCategory}, Priority: ${nextPost.isPriority}) [TTS: ${ttsTitleUrl || "none"}]`);
 
-        // Broadcast STAGE_NEW_POST
+        // Broadcast STAGE_NEW_POST with synced ttsTitleUrl
         this.io?.emit("STAGE_NEW_POST", {
           post: this.state.currentPost,
           remainingMs: this.state.remainingMs,
           elapsedMs: this.state.elapsedMs,
           keepCount: this.state.keepCount,
           dropCount: this.state.dropCount,
+          ttsTitleUrl,
         });
       } else {
         console.warn("[StageEngine] Warning: No posts found in database.");

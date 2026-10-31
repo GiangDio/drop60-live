@@ -186,7 +186,60 @@ class AudioManager {
   }
 
   // ==========================================
-  // AUDIO DUCKING MECHANISM (FOR TTS)
+  // SYNCHRONIZED SERVER TTS STREAM (HOWLER.JS)
+  // ==========================================
+
+  public playTtsStream(url: string | undefined, fallbackText?: string, onEnd?: () => void) {
+    if (typeof window === "undefined" || this.isMuted) return;
+
+    if (!url) {
+      if (fallbackText) {
+        this.speakWithDucking(fallbackText);
+      }
+      return;
+    }
+
+    try {
+      this.cancelSpeech();
+      this.duckBgm(200);
+
+      const ttsSound = new Howl({
+        src: [url],
+        format: ["mp3"],
+        html5: true,
+        volume: 1.0,
+        onloaderror: (_id, err) => {
+          console.warn("[AudioManager] TTS stream load error, falling back to local speech:", err);
+          this.unduckBgm(300);
+          if (fallbackText) {
+            this.speakWithDucking(fallbackText);
+          }
+        },
+        onplayerror: (_id, err) => {
+          console.warn("[AudioManager] TTS stream play error, falling back to local speech:", err);
+          this.unduckBgm(300);
+          if (fallbackText) {
+            this.speakWithDucking(fallbackText);
+          }
+        },
+        onend: () => {
+          this.unduckBgm(500);
+          if (onEnd) onEnd();
+        },
+      });
+
+      ttsSound.play();
+    } catch (e) {
+      console.warn("[AudioManager] playTtsStream failed:", e);
+      this.unduckBgm(300);
+      if (fallbackText) {
+        this.speakWithDucking(fallbackText);
+      }
+    }
+  }
+
+  // ==========================================
+  // AUDIO DUCKING MECHANISM (FOR LOCAL TTS)
   // ==========================================
 
   public duckBgm(durationMs: number = 300) {

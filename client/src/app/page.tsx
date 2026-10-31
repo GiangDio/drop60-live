@@ -54,6 +54,7 @@ interface VipHighlight {
   message: string;
   actionType: "keep" | "drop";
   timeDeltaMs: number;
+  ttsCommentUrl?: string;
 }
 
 export default function Home() {
@@ -159,7 +160,7 @@ export default function Home() {
 
         if (state.elapsedMs <= 10000 && spokenPostIdRef.current !== state.currentPost.id) {
           spokenPostIdRef.current = state.currentPost.id;
-          audioManager.speakWithDucking(state.currentPost.title);
+          audioManager.playTtsStream(state.ttsTitleUrl, state.currentPost.title);
         }
       }
       setRemainingMs(state.remainingMs);
@@ -200,10 +201,10 @@ export default function Home() {
         // Crossfade to new post's BGM
         audioManager.playBgm(data.post.bgmCategory);
 
-        // Audio Ducking + Web Speech API: Read title aloud in the first 10 seconds
+        // Synced Server-side TTS Stream with Audio Ducking
         if (spokenPostIdRef.current !== data.post.id) {
           spokenPostIdRef.current = data.post.id;
-          audioManager.speakWithDucking(data.post.title);
+          audioManager.playTtsStream(data.ttsTitleUrl, data.post.title);
         }
       }
     });
@@ -233,16 +234,16 @@ export default function Home() {
       audioManager.playChat();
     });
 
-    // Feature 1: VIP Audio Highlight Event (Broadcasted to all clients with Audio Ducking)
+    // Feature 1: VIP Audio Highlight Event (Broadcasted to all clients with Synced Server TTS)
     s.on("AUDIO_HIGHLIGHT", (data: VipHighlight) => {
       setActiveVipHighlight(data);
       audioManager.playKeep();
 
       const actionText = data.actionType === "keep" ? "Cộng mười giây cứu bài!" : "Trừ mười giây dìm bài!";
-      const vipSpeech = `${data.username} bình luận: ${data.message}. ${actionText}`;
+      const fallbackSpeech = `${data.username} bình luận: ${data.message}. ${actionText}`;
 
-      // Audio Ducking: lowers BGM to 0.12 while speaking, then fades back to 0.5
-      audioManager.speakWithDucking(vipSpeech, { pitch: 1.1, rate: 1.05 });
+      // Synchronized Server-Side TTS Stream played on all clients simultaneously
+      audioManager.playTtsStream(data.ttsCommentUrl, fallbackSpeech);
 
       // Dismiss VIP overlay after 5 seconds
       setTimeout(() => {

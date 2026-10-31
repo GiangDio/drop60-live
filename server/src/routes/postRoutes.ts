@@ -177,7 +177,7 @@ router.post("/highlight-chat", authenticateToken, async (req: AuthenticatedReque
     });
 
     // Broadcast VIP Audio Highlight event & impact +10s / -10s
-    stageEngine.handleAudioHighlight(req.user.username, message.trim(), type);
+    await stageEngine.handleAudioHighlight(req.user.username, message.trim(), type);
 
     res.status(200).json({
       message: `Audio Highlight 5.000 VNĐ thành công! Tác động ${type === "keep" ? "+10s (Cứu bài)" : "-10s (Dìm bài)"}.`,

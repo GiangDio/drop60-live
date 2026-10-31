@@ -8,6 +8,7 @@ import prisma from "./prisma";
 import authRoutes from "./routes/authRoutes";
 import walletRoutes from "./routes/walletRoutes";
 import postRoutes from "./routes/postRoutes";
+import ttsRoutes from "./routes/ttsRoutes";
 import { AuthenticatedUser } from "./middleware/auth";
 import { seedSamplePosts } from "./services/seedService";
 import { stageEngine } from "./services/stageEngine";
@@ -30,6 +31,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/posts", postRoutes);
+app.use("/api/tts", ttsRoutes);
 
 // Health check endpoint
 app.get("/health", async (_req: Request, res: Response) => {

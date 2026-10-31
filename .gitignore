@@ -1,4 +1,7 @@
-# Dependencies
+# Caches
+cache/
+server/cache/
+.turbo/
 node_modules/
 .pnp
 .pnp.js
