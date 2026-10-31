@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Trophy, X, Flame, Calendar, Clock, Loader2, Sparkles } from "lucide-react";
+import { API_BASE_URL } from "@/lib/api";
 
 interface TopTierPost {
   id: string;
@@ -27,7 +28,7 @@ export default function TopTierModal({ isOpen, onClose }: TopTierModalProps) {
     if (!isOpen) return;
 
     setLoading(true);
-    const API_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+    const API_URL = API_BASE_URL;
 
     fetch(`${API_URL}/api/posts/top-tier`)
       .then((res) => res.json())

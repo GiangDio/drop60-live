@@ -13,6 +13,7 @@ import {
   Send,
   ShieldCheck,
 } from "lucide-react";
+import { API_BASE_URL } from "@/lib/api";
 
 interface CreatePostModalProps {
   isOpen: boolean;
@@ -64,7 +65,7 @@ export default function CreatePostModal({
     setLoading(true);
     setSubmittingType(isPriority ? "priority" : "free");
 
-    const API_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+    const API_URL = API_BASE_URL;
 
     try {
       const res = await fetch(`${API_URL}/api/posts/create`, {

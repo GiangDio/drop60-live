@@ -13,6 +13,7 @@ import {
   Smartphone,
   ExternalLink,
 } from "lucide-react";
+import { API_BASE_URL } from "@/lib/api";
 import { User } from "@/lib/api";
 
 interface DepositModalProps {
@@ -53,7 +54,7 @@ export default function DepositModal({
     async (amount: number) => {
       if (!token) return;
       setLoading(true);
-      const API_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+      const API_URL = API_BASE_URL;
 
       try {
         const res = await fetch(`${API_URL}/api/wallet/deposit-qr?amount=${amount}`, {
@@ -96,7 +97,7 @@ export default function DepositModal({
     setSimulating(true);
     setSimulationToast("");
 
-    const API_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+    const API_URL = API_BASE_URL;
 
     try {
       const res = await fetch(`${API_URL}/api/webhook/payment`, {

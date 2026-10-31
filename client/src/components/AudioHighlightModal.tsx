@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X, Sparkles, Volume2, ShieldCheck, AlertCircle, Loader2, ArrowUpCircle, ArrowDownCircle } from "lucide-react";
+import { API_BASE_URL } from "@/lib/api";
 
 interface AudioHighlightModalProps {
   isOpen: boolean;
@@ -48,7 +49,7 @@ export default function AudioHighlightModal({
     }
 
     setLoading(true);
-    const API_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+    const API_URL = API_BASE_URL;
 
     try {
       const res = await fetch(`${API_URL}/api/posts/highlight-chat`, {

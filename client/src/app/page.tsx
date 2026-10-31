@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { getSocket } from "@/lib/socket";
-import { authApi, User } from "@/lib/api";
+import { authApi, User, API_BASE_URL } from "@/lib/api";
 import { audioManager } from "@/lib/audioManager";
 import AuthScreen from "@/components/AuthScreen";
 import TopTierModal from "@/components/TopTierModal";
@@ -313,7 +313,7 @@ export default function Home() {
     if (socket && socket.connected) {
       socket.emit("ADMIN_TOGGLE_BOTS");
     } else {
-      const API_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+      const API_URL = API_BASE_URL;
       try {
         const res = await fetch(`${API_URL}/api/posts/toggle-bots`, { method: "POST" });
         const data = await res.json();

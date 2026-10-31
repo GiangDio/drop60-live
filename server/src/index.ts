@@ -21,10 +21,55 @@ const PORT = process.env.PORT || 4000;
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 const JWT_SECRET = process.env.JWT_SECRET || "drop60-live-super-secret-jwt-key-2026";
 
+// Parse ALLOWED_ORIGINS: Comma-separated list of origins, with local fallback
+const rawAllowedOrigins = process.env.ALLOWED_ORIGINS || process.env.CLIENT_URL || "http://localhost:3000";
+const configuredOrigins = rawAllowedOrigins
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
+// Always ensure local development origins are present
+["http://localhost:3000", "http://127.0.0.1:3000"].forEach((loc) => {
+  if (!configuredOrigins.includes(loc)) configuredOrigins.push(loc);
+});
+
+export const isOriginAllowed = (origin: string | undefined): boolean => {
+  // Allow requests with no origin (e.g. mobile apps, curl, server-to-server, Render health check)
+  if (!origin) return true;
+  const cleanOrigin = origin.replace(/\/$/, "");
+
+  // 1. Wildcard allow-all
+  if (configuredOrigins.includes("*")) return true;
+
+  // 2. Exact match in configured ALLOWED_ORIGINS
+  if (configuredOrigins.includes(cleanOrigin)) return true;
+
+  // 3. Automatically allow all *.vercel.app preview & production domains
+  try {
+    const parsed = new URL(cleanOrigin);
+    if (parsed.hostname.endsWith(".vercel.app")) {
+      return true;
+    }
+  } catch {
+    // Ignore invalid origin URLs
+  }
+
+  return false;
+};
+
 // Middlewares
 app.use(cors({
-  origin: [CLIENT_URL, "http://localhost:3000"],
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Blocked request from unauthorized origin: ${origin}`);
+      callback(null, false);
+    }
+  },
   credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 }));
 app.use(express.json());
 
@@ -35,20 +80,22 @@ app.use("/api/posts", postRoutes);
 app.use("/api/tts", ttsRoutes);
 app.use("/api/webhook", webhookRoutes);
 
-// Health check endpoint
+// Health check endpoint (compatible with Render & automated monitoring)
 app.get("/health", async (_req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({
       status: "ok",
+      uptime: process.uptime(),
       service: "DROP60.LIVE Backend",
       timestamp: new Date().toISOString(),
-      database: "connected (SQLite)",
+      database: "connected",
       stage: stageEngine.getState(),
     });
   } catch (error) {
     res.status(200).json({
       status: "degraded",
+      uptime: process.uptime(),
       service: "DROP60.LIVE Backend",
       timestamp: new Date().toISOString(),
       database: "disconnected",
@@ -61,14 +108,24 @@ app.get("/", (_req: Request, res: Response) => {
   res.send("DROP60.LIVE Realtime Stage Server is running.");
 });
 
-// Create HTTP and Socket.IO server
+// Create HTTP and Socket.IO server with resilient transport options
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: [CLIENT_URL, "http://localhost:3000"],
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`[Socket.io CORS] Blocked connection from origin: ${origin}`);
+        callback(new Error("Not allowed by CORS"), false);
+      }
+    },
     methods: ["GET", "POST"],
     credentials: true,
   },
+  transports: ["websocket", "polling"],
+  pingTimeout: 30000,
+  pingInterval: 10000,
 });
 
 // Socket.io Authentication Middleware
@@ -144,7 +201,7 @@ async function bootstrap() {
     server.listen(PORT, async () => {
       console.log(`===============================================`);
       console.log(`🚀 DROP60.LIVE Server running on port ${PORT}`);
-      console.log(`📡 Socket.io ready for connections from ${CLIENT_URL}`);
+      console.log(`📡 Allowed Origins: [${configuredOrigins.join(", ")}] (*.vercel.app auto-allowed)`);
       console.log(`🩺 Health check available at: http://localhost:${PORT}/health`);
       console.log(`===============================================`);
 
