@@ -9,6 +9,7 @@ import authRoutes from "./routes/authRoutes";
 import walletRoutes from "./routes/walletRoutes";
 import postRoutes from "./routes/postRoutes";
 import ttsRoutes from "./routes/ttsRoutes";
+import webhookRoutes from "./routes/webhookRoutes";
 import { AuthenticatedUser } from "./middleware/auth";
 import { seedSamplePosts } from "./services/seedService";
 import { stageEngine } from "./services/stageEngine";
@@ -32,6 +33,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/posts", postRoutes);
 app.use("/api/tts", ttsRoutes);
+app.use("/api/webhook", webhookRoutes);
 
 // Health check endpoint
 app.get("/health", async (_req: Request, res: Response) => {
@@ -92,6 +94,10 @@ io.use((socket: Socket, next) => {
 io.on("connection", (socket: Socket) => {
   const user = socket.data.user as AuthenticatedUser;
   console.log(`[Socket.io] User connected: ${user.username} (${socket.id}) | Online: ${stageEngine.getOnlineUsers()}`);
+
+  // Join user room for targeted notifications (e.g. deposit webhook)
+  socket.join(`user:${user.userId}`);
+  socket.join(`user:${user.username}`);
 
   // 1. Send current live stage snapshot immediately to new connection
   socket.emit("STAGE_INITIAL_STATE", stageEngine.getState());

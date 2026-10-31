@@ -9,6 +9,7 @@ generator client {
 
 model User {
   id           String        @id @default(uuid())
+  userNumber   Int?          @unique
   username     String        @unique
   passwordHash String
   balance      Float         @default(50000.0)
@@ -31,10 +32,11 @@ model Post {
 }
 
 model Transaction {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  amount    Float
-  type      String   // 'deposit' | 'audio_highlight' | 'priority_queue'
-  createdAt DateTime @default(now())
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount        Float
+  type          String   // 'deposit' | 'audio_highlight' | 'priority_queue'
+  referenceCode String?  @unique
+  createdAt     DateTime @default(now())
 }

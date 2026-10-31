@@ -70,6 +70,10 @@ class StageEngine {
     "Cộng giờ cứu bài đê!",
   ];
 
+  public getIo(): Server | null {
+    return this.io;
+  }
+
   public getOnlineUsers(): number {
     const realUsers = this.io?.engine.clientsCount || 0;
     return this.botsEnabled ? realUsers + this.BOT_NAMES.length : realUsers;

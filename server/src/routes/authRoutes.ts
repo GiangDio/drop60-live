@@ -35,6 +35,7 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
+    const userCount = await prisma.user.count();
 
     // Create user with 50,000 VND default balance for testing
     const user = await prisma.user.create({
@@ -42,9 +43,11 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
         username: cleanUsername,
         passwordHash,
         balance: 50000.0,
+        userNumber: userCount + 1,
       },
       select: {
         id: true,
+        userNumber: true,
         username: true,
         balance: true,
         createdAt: true,
@@ -107,6 +110,7 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
       token,
       user: {
         id: user.id,
+        userNumber: user.userNumber,
         username: user.username,
         balance: user.balance,
         createdAt: user.createdAt,
@@ -130,6 +134,7 @@ router.get("/me", authenticateToken, async (req: AuthenticatedRequest, res: Resp
       where: { id: req.user.userId },
       select: {
         id: true,
+        userNumber: true,
         username: true,
         balance: true,
         createdAt: true,

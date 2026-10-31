@@ -8,6 +8,7 @@ import AuthScreen from "@/components/AuthScreen";
 import TopTierModal from "@/components/TopTierModal";
 import CreatePostModal from "@/components/CreatePostModal";
 import AudioHighlightModal from "@/components/AudioHighlightModal";
+import DepositModal from "@/components/DepositModal";
 import {
   Users,
   Trophy,
@@ -84,6 +85,7 @@ export default function Home() {
   const [isTopTierOpen, setIsTopTierOpen] = useState<boolean>(false);
   const [isCreatePostOpen, setIsCreatePostOpen] = useState<boolean>(false);
   const [isAudioHighlightOpen, setIsAudioHighlightOpen] = useState<boolean>(false);
+  const [isDepositModalOpen, setIsDepositModalOpen] = useState<boolean>(false);
 
   // VIP Audio Highlight Alert Box State (5s display)
   const [activeVipHighlight, setActiveVipHighlight] = useState<VipHighlight | null>(null);
@@ -256,6 +258,16 @@ export default function Home() {
       setIsBotsEnabled(data.enabled);
       if (data.onlineUsers !== undefined) setViewerCount(data.onlineUsers);
       showToast(data.enabled ? `Đã bật ${data.botCount} Bot Mồi!` : "Đã tắt Bot Mồi.");
+    });
+
+    // Feature 4: Realtime Wallet Updated via VietQR Bank Webhook (SePay / Casso)
+    s.on("WALLET_UPDATED", (data: { userId: string; newBalance: number; depositAmount: number; message: string }) => {
+      if (data.userId === user.id) {
+        setUser((prev) => (prev ? { ...prev, balance: data.newBalance } : null));
+        audioManager.playKeep();
+        showToast(data.message || `+${new Intl.NumberFormat("vi-VN").format(data.depositAmount)}đ đã nạp vào ví!`);
+        audioManager.speakWithDucking("Tài khoản đã được nạp thành công!", { volume: 0.9 });
+      }
     });
 
     return () => {
@@ -486,17 +498,25 @@ export default function Home() {
 
           {/* Góc Phải: Username, Ví (VNĐ), [+20k], [🏆 Top Tier] */}
           <div className="flex items-center gap-1 shrink-0">
-            {/* Wallet & Quick Deposit */}
-            <div className="flex items-center gap-1 bg-neutral-900/90 border border-neutral-800 px-1.5 py-0.5 rounded-lg">
+            {/* Wallet & Quick Deposit (VietQR) */}
+            <div
+              onClick={() => setIsDepositModalOpen(true)}
+              className="flex items-center gap-1 bg-neutral-900/90 hover:bg-neutral-800/90 border border-neutral-800 px-1.5 py-0.5 rounded-lg cursor-pointer transition-all active:scale-95"
+              title="Nạp tiền tự động qua VietQR (SePay / Casso)"
+            >
               <span className="text-[10px] font-extrabold font-mono text-amber-300">
                 {formatVND(user.balance).replace("₫", "")}đ
               </span>
               <button
-                onClick={handleMockDeposit}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsDepositModalOpen(true);
+                }}
                 className="px-1 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-black font-black text-[9px] active:scale-95 transition-all"
-                title="Nạp 20.000đ test"
+                title="Mở nạp tiền VietQR"
               >
-                +20k
+                +Nạp
               </button>
             </div>
 
@@ -768,6 +788,17 @@ export default function Home() {
 
       {/* Modals */}
       <TopTierModal isOpen={isTopTierOpen} onClose={() => setIsTopTierOpen(false)} />
+      <DepositModal
+        isOpen={isDepositModalOpen}
+        onClose={() => setIsDepositModalOpen(false)}
+        token={token}
+        user={user}
+        onSuccess={(newBalance, amt) => {
+          setUser((prev) => (prev ? { ...prev, balance: newBalance } : null));
+          audioManager.playKeep();
+          showToast(`🎉 Nạp thành công +${new Intl.NumberFormat("vi-VN").format(amt)}đ!`);
+        }}
+      />
       <AudioHighlightModal
         isOpen={isAudioHighlightOpen}
         onClose={() => setIsAudioHighlightOpen(false)}
