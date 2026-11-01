@@ -17,7 +17,7 @@ import { stageEngine } from "./services/stageEngine";
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = parseInt(String(process.env.PORT || 4000), 10);
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 const JWT_SECRET = process.env.JWT_SECRET || "drop60-live-super-secret-jwt-key-2026";
 
@@ -198,7 +198,7 @@ async function bootstrap() {
     await seedSamplePosts();
 
     // 2. Start HTTP & Socket server
-    server.listen(PORT, async () => {
+    server.listen(PORT, "0.0.0.0", async () => {
       console.log(`===============================================`);
       console.log(`🚀 DROP60.LIVE Server running on port ${PORT}`);
       console.log(`📡 Allowed Origins: [${configuredOrigins.join(", ")}] (*.vercel.app auto-allowed)`);

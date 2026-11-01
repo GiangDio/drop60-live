@@ -180,7 +180,8 @@ class TTSService {
     const hash = this.getHash(cleanText);
     const cached = this.getCachedBuffer(hash);
 
-    const baseUrl = process.env.SERVER_BASE_URL || `http://localhost:${process.env.PORT || 4000}`;
+    const rawBaseUrl = process.env.RENDER_EXTERNAL_URL || process.env.SERVER_BASE_URL || `http://localhost:${process.env.PORT || 4000}`;
+    const baseUrl = rawBaseUrl.replace(/\/$/, "");
     const url = `${baseUrl}/api/tts/${hash}.mp3`;
 
     if (cached) {

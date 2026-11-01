@@ -11,20 +11,16 @@ services:
     plan: free
     region: singapore
     rootDir: server
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm run start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
       - key: ALLOWED_ORIGINS
         value: "https://drop60-live.vercel.app,http://localhost:3000"
       - key: CLIENT_URL
         value: "https://drop60-live.vercel.app"
-      - key: SERVER_BASE_URL
-        value: "https://drop60-live-server.onrender.com"
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL
